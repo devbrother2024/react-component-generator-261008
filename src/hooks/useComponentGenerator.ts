@@ -1,10 +1,12 @@
-import { useState, useCallback, useEffect } from 'react';
+import { readGeneratedCode } from '../utils/generateStream';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type { GeneratedComponent, Provider } from '../types';
 import { addPromptToHistory, MAX_SAVED_COMPONENTS, restoreComponents, restorePromptHistory } from '../utils/restore';
 import { readStorage, STORAGE_KEYS, writeStorage } from '../utils/storage';
 
 interface UseComponentGeneratorReturn {
   components: GeneratedComponent[];
+  streamingComponent: GeneratedComponent | null;
   promptHistory: string[];
   isLoading: boolean;
   error: string | null;
@@ -20,6 +22,8 @@ export function useComponentGenerator(): UseComponentGeneratorReturn {
   const [promptHistory, setPromptHistory] = useState<string[]>(() =>
     restorePromptHistory(readStorage(STORAGE_KEYS.promptHistory, [])),
   );
+  const generating = useRef(false);
+  const [streamingComponent, setStreamingComponent] = useState<GeneratedComponent | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -32,6 +36,13 @@ export function useComponentGenerator(): UseComponentGeneratorReturn {
   }, [promptHistory]);
 
   const generate = useCallback(async (prompt: string, apiKey: string | undefined, provider: Provider) => {
+    if (generating.current || !prompt.trim()) return;
+    generating.current = true;
+    const pending: GeneratedComponent = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      prompt, code: '', createdAt: new Date(),
+    };
+    setStreamingComponent(pending);
     setIsLoading(true);
     setError(null);
 
@@ -42,18 +53,10 @@ export function useComponentGenerator(): UseComponentGeneratorReturn {
         body: JSON.stringify({ prompt, ...(apiKey && { apiKey }), provider }),
       });
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to generate component');
-      }
-
-      const newComponent: GeneratedComponent = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        prompt,
-        code: data.code,
-        createdAt: new Date(),
-      };
+      const code = await readGeneratedCode(res, (text) => {
+        setStreamingComponent(prev => prev ? { ...prev, code: prev.code + text } : prev);
+      });
+      const newComponent = { ...pending, code };
 
       setComponents((prev) => [newComponent, ...prev].slice(0, MAX_SAVED_COMPONENTS));
       setPromptHistory((prev) => addPromptToHistory(prev, prompt));
@@ -61,6 +64,8 @@ export function useComponentGenerator(): UseComponentGeneratorReturn {
       const message = err instanceof Error ? err.message : 'Unknown error';
       setError(message);
     } finally {
+      setStreamingComponent(null);
+      generating.current = false;
       setIsLoading(false);
     }
   }, []);
@@ -73,5 +78,5 @@ export function useComponentGenerator(): UseComponentGeneratorReturn {
     setComponents([]);
   }, []);
 
-  return { components, promptHistory, isLoading, error, generate, removeComponent, clearAll };
+  return { components, streamingComponent, promptHistory, isLoading, error, generate, removeComponent, clearAll };
 }
