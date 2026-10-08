@@ -1,0 +1,4 @@
+interface:
+  display_name: "Commit"
+  short_description: "변경을 분석해 한국어 메시지로 바로 커밋"
+  default_prompt: "Use $commit to analyze my changes and commit them with Korean messages."

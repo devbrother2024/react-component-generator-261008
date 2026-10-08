@@ -1,0 +1,4 @@
+* { box-sizing:border-box; margin:0; padding:0; }
+:root { color-scheme:light; font-synthesis:none; text-rendering:optimizeLegibility; -webkit-font-smoothing:antialiased; }
+body { min-width:0; min-height:100vh; background-color:#f3e9d2; background-image:radial-gradient(rgba(23,33,43,.16) .65px,transparent .65px); background-size:7px 7px; color:#17212b; font-family:'IBM Plex Sans KR','Apple SD Gothic Neo',system-ui,sans-serif; }
+button,input,select,textarea { font:inherit; } button { -webkit-tap-highlight-color:transparent; }
