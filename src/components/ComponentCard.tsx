@@ -13,7 +13,8 @@ interface ComponentCardProps {
 type Tab = 'preview' | 'code';
 
 export function ComponentCard({ component, onRemove, onRegenerate, isLoading }: ComponentCardProps) {
-  const [activeTab, setActiveTab] = useState<Tab>('preview');
+  const [activeTab, setActiveTab] = useState<Tab>(component.restored ? 'code' : 'preview');
+  const [isPreviewEnabled, setIsPreviewEnabled] = useState(!component.restored);
   const [previewKey, setPreviewKey] = useState(0);
   const createdAt = component.createdAt.toLocaleTimeString('ko-KR', {
     hour: '2-digit',
@@ -67,7 +68,12 @@ export function ComponentCard({ component, onRemove, onRegenerate, isLoading }: 
       </div>
       <div className="card-content">
         {activeTab === 'preview' ? (
-          <LivePreview key={previewKey} code={component.code} />
+          isPreviewEnabled ? <LivePreview key={previewKey} code={component.code} /> : (
+            <div className="preview-restore-notice">
+              <p>복원된 코드입니다. 실행하기 전에 내용을 확인하세요.</p>
+              <button type="button" onClick={() => setIsPreviewEnabled(true)}>미리보기 실행</button>
+            </div>
+          )
         ) : (
           <CodeView code={component.code} />
         )}

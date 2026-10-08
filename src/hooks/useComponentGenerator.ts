@@ -1,8 +1,11 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import type { GeneratedComponent, Provider } from '../types';
+import { addPromptToHistory, MAX_SAVED_COMPONENTS, restoreComponents, restorePromptHistory } from '../utils/restore';
+import { readStorage, STORAGE_KEYS, writeStorage } from '../utils/storage';
 
 interface UseComponentGeneratorReturn {
   components: GeneratedComponent[];
+  promptHistory: string[];
   isLoading: boolean;
   error: string | null;
   generate: (prompt: string, apiKey: string | undefined, provider: Provider) => Promise<void>;
@@ -11,9 +14,22 @@ interface UseComponentGeneratorReturn {
 }
 
 export function useComponentGenerator(): UseComponentGeneratorReturn {
-  const [components, setComponents] = useState<GeneratedComponent[]>([]);
+  const [components, setComponents] = useState<GeneratedComponent[]>(() =>
+    restoreComponents(readStorage(STORAGE_KEYS.components, [])),
+  );
+  const [promptHistory, setPromptHistory] = useState<string[]>(() =>
+    restorePromptHistory(readStorage(STORAGE_KEYS.promptHistory, [])),
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.components, components);
+  }, [components]);
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.promptHistory, promptHistory);
+  }, [promptHistory]);
 
   const generate = useCallback(async (prompt: string, apiKey: string | undefined, provider: Provider) => {
     setIsLoading(true);
@@ -39,7 +55,8 @@ export function useComponentGenerator(): UseComponentGeneratorReturn {
         createdAt: new Date(),
       };
 
-      setComponents((prev) => [newComponent, ...prev]);
+      setComponents((prev) => [newComponent, ...prev].slice(0, MAX_SAVED_COMPONENTS));
+      setPromptHistory((prev) => addPromptToHistory(prev, prompt));
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       setError(message);
@@ -56,5 +73,5 @@ export function useComponentGenerator(): UseComponentGeneratorReturn {
     setComponents([]);
   }, []);
 
-  return { components, isLoading, error, generate, removeComponent, clearAll };
+  return { components, promptHistory, isLoading, error, generate, removeComponent, clearAll };
 }
