@@ -26,3 +26,14 @@ describe('ComponentCard', () => {
     expect(screen.getByRole('button', { name: '미리보기 실행' })).toBeVisible();
   });
 });
+
+it('생성 중 코드 탭을 표시하고 완료 시 미리보기로 전환한다', () => {
+  const component = { id: 'stream', prompt: '카드', code: 'const Card', createdAt: new Date() };
+  const props = { component, onRemove: vi.fn(), onRegenerate: vi.fn(), isLoading: true };
+  const { rerender } = render(<ComponentCard {...props} isStreaming />);
+  expect(screen.getByRole('button', { name: '코드' })).toHaveClass('tab--active');
+  expect(screen.getByText('const Card')).toBeVisible();
+  expect(screen.getByRole('button', { name: '미리보기' })).toBeDisabled();
+  rerender(<ComponentCard {...props} component={{ ...component, code: 'render(<div>완성!</div>)' }} isStreaming={false} isLoading={false} />);
+  expect(screen.getByRole('button', { name: '미리보기' })).toHaveClass('tab--active');
+});

@@ -4,14 +4,17 @@
 
 # Tech Stack & Constraints
 
-- 런타임은 Bun이며 서버 포트는 `3002`다(`index.ts:138-140`).
-- 생성 코드는 import와 TypeScript 문법 없이 독립 실행 가능해야 하며, `render(...)` 호출이 필요하다(`index.ts:9-20`, `generator.ts:16-23`).
+- 런타임은 Bun이며 서버 포트는 `3002`다(`index.ts`의 `Bun.serve`).
+- 생성 코드는 import와 TypeScript 문법 없이 독립 실행 가능해야 하며, `render(...)` 호출이 필요하다(`index.ts`의 `SYSTEM_PROMPT`, `generator.ts`의 `ensureRenderCall`).
 
 # Implementation Patterns
 
-- 새 API 경로는 `CORS_HEADERS`를 일관되게 적용하고 OPTIONS 요청을 유지한다(`index.ts:51-55, 140-143`).
-- 환경 키는 `resolveApiKey`를 통해서만 선택한다(`index.ts:59-66`). 설정 API에는 키 자체가 아니라 boolean 상태만 노출한다(`index.ts:147-156`).
-- Google 모델 추가·순서 변경은 `GOOGLE_MODELS`와 `withModelFallback` 경로를 함께 검토한다(`index.ts:4-5, 134-136`).
+- 새 API 경로는 `CORS_HEADERS`를 일관되게 적용하고 OPTIONS 요청을 유지한다(`index.ts`의 `CORS_HEADERS`와 OPTIONS 분기).
+- 환경 키는 `resolveApiKey`를 통해서만 선택한다(`index.ts`의 `resolveApiKey`). 설정 API에는 키 자체가 아니라 boolean 상태만 노출한다(`index.ts`의 `/api/config` 분기).
+- Google 모델 추가·순서 변경은 `GOOGLE_MODELS`와 `withModelFallback` 경로를 함께 검토한다(`index.ts`의 `GOOGLE_MODELS`와 `callGoogle`).
+
+- `/api/generate`는 NDJSON `delta`로 코드 조각을 전달하고, 정규화한 최종 코드를 `done`으로 전달한다. 실패는 `error` 이벤트로 전달한다.
+- Google 폴백은 코드 조각 전달 전에만 수행한다. 전달 후 실패하면 마지막 오류를 보존하고 스트림을 종료해 서로 다른 모델의 코드가 섞이지 않게 한다.
 
 # Testing Strategy
 
@@ -20,6 +23,6 @@
 
 # Local Golden Rules
 
-- 생성 결과는 `stripCodeFences` 후 `ensureRenderCall`을 거쳐 응답한다(`index.ts:188-190`). 정규화 단계를 건너뛰면 `react-live` 미리보기가 깨질 수 있다.
-- 빈 프롬프트나 누락된 키를 공급자 API로 전달하지 않는다. 서버 검증을 클라이언트 검증으로 대체하지 않는다(`index.ts:167-181`).
-- API 키는 오류 문자열, 성공 응답, 설정 응답에 포함하지 않는다. 서버 내부에서만 사용한다(`index.ts:59-66, 147-156, 183-190`).
+- 생성 결과는 `stripCodeFences` 후 `ensureRenderCall`을 거쳐 응답한다(`stream.ts`의 `createCodeStream`). 정규화 단계를 건너뛰면 `react-live` 미리보기가 깨질 수 있다.
+- 빈 프롬프트나 누락된 키를 공급자 API로 전달하지 않는다. 서버 검증을 클라이언트 검증으로 대체하지 않는다(`index.ts`의 `/api/generate` 검증).
+- API 키는 오류 문자열, 성공 응답, 설정 응답에 포함하지 않는다. 서버 내부에서만 사용한다(`index.ts`의 `resolveApiKey`, `/api/config`, `stream.ts`의 오류 이벤트).

@@ -1,4 +1,4 @@
-import { stripCodeFences, ensureRenderCall } from './generator';
+import { createCodeStream, readProviderStream } from './stream';
 import { withModelFallback } from './fallback';
 
 // 우선순위 순서. 앞 모델이 실패하면 다음 모델로 폴백한다.
@@ -65,9 +65,10 @@ function resolveApiKey(provider: Provider, clientKey?: string): string | null {
   return clientKey || ENV_KEYS[provider] || null;
 }
 
-async function callAnthropic(prompt: string, apiKey: string): Promise<string> {
+async function callAnthropic(prompt: string, apiKey: string, emit: (text: string) => void, signal: AbortSignal): Promise<string> {
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
+    signal,
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
@@ -75,6 +76,7 @@ async function callAnthropic(prompt: string, apiKey: string): Promise<string> {
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
+      stream: true,
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: prompt }],
@@ -85,21 +87,15 @@ async function callAnthropic(prompt: string, apiKey: string): Promise<string> {
     throw new Error(`Claude API error: ${response.status}`);
   }
 
-  const data = (await response.json()) as {
-    content: Array<{ type: string; text?: string }>;
-  };
-
-  return data.content
-    .filter((block) => block.type === 'text')
-    .map((block) => block.text)
-    .join('');
+  return readProviderStream(response, 'anthropic', emit);
 }
 
-async function callGoogleModel(prompt: string, apiKey: string, model: string): Promise<string> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+async function callGoogleModel(prompt: string, apiKey: string, model: string, emit: (text: string) => void, signal: AbortSignal): Promise<string> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`;
 
   const response = await fetch(url, {
     method: 'POST',
+    signal,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
@@ -112,31 +108,24 @@ async function callGoogleModel(prompt: string, apiKey: string, model: string): P
     throw new Error(`Gemini API error: ${response.status}`);
   }
 
-  const data = (await response.json()) as {
-    candidates: Array<{
-      content: { parts: Array<{ text?: string }> };
-      finishReason?: string;
-    }>;
-  };
-
-  const candidate = data.candidates?.[0];
-  if (candidate?.finishReason === 'MAX_TOKENS') {
-    throw new Error('생성된 코드가 너무 길어 잘렸습니다. 더 간단한 컴포넌트를 요청해주세요.');
-  }
-
-  return (
-    candidate?.content?.parts
-      ?.map((part) => part.text)
-      ?.join('') ?? ''
-  );
+  return readProviderStream(response, 'google', emit);
 }
 
-async function callGoogle(prompt: string, apiKey: string): Promise<string> {
-  return withModelFallback(GOOGLE_MODELS, (model) => callGoogleModel(prompt, apiKey, model));
+async function callGoogle(prompt: string, apiKey: string, emit: (text: string) => void, signal: AbortSignal): Promise<string> {
+  let started = false;
+  let lastError: unknown;
+  return withModelFallback(GOOGLE_MODELS, (model) => {
+    if (started || signal.aborted) throw lastError;
+    return callGoogleModel(prompt, apiKey, model, text => { started = true; emit(text); }, signal).catch(error => {
+      lastError = error;
+      throw error;
+    });
+  });
 }
 
 const server = Bun.serve({
   port: 3002,
+  idleTimeout: 120,
   async fetch(req) {
     if (req.method === 'OPTIONS') {
       return new Response(null, { headers: CORS_HEADERS });
@@ -164,6 +153,9 @@ const server = Bun.serve({
           provider?: Provider;
         };
 
+        if (provider !== 'google' && provider !== 'anthropic') {
+          return Response.json({ error: 'Invalid provider' }, { status: 400, headers: CORS_HEADERS });
+        }
         const resolvedKey = resolveApiKey(provider, apiKey);
 
         if (!resolvedKey) {
@@ -173,21 +165,25 @@ const server = Bun.serve({
           );
         }
 
-        if (!prompt) {
+        if (typeof prompt !== 'string' || !prompt.trim()) {
           return Response.json(
             { error: 'Prompt is required' },
             { status: 400, headers: CORS_HEADERS }
           );
         }
 
-        const text =
-          provider === 'google'
-            ? await callGoogle(prompt, resolvedKey)
-            : await callAnthropic(prompt, resolvedKey);
-
-        const code = ensureRenderCall(stripCodeFences(text));
-
-        return Response.json({ code }, { headers: CORS_HEADERS });
+        const abort = new AbortController();
+        req.signal.addEventListener('abort', () => abort.abort(), { once: true, signal: abort.signal });
+        const stream = createCodeStream(async emit => {
+          try {
+            return await (provider === 'google'
+              ? callGoogle(prompt, resolvedKey, emit, abort.signal)
+              : callAnthropic(prompt, resolvedKey, emit, abort.signal));
+          } finally { abort.abort(); }
+        }, () => abort.abort());
+        return new Response(stream, {
+          headers: { ...CORS_HEADERS, 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-cache' },
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error';
 
@@ -206,7 +202,7 @@ const server = Bun.serve({
         }
 
         return Response.json(
-          { error: message },
+          { error: '컴포넌트 생성에 실패했습니다.' },
           { status: 500, headers: CORS_HEADERS }
         );
       }
