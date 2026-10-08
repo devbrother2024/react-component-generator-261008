@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readProviderStream } from './stream';
+import { createCodeStream, readProviderStream } from './stream';
 
 function response(events: unknown[]) {
   const text = events.map(e => `data: ${JSON.stringify(e)}\r\n\r\n`).join('');
@@ -40,7 +40,6 @@ describe('provider streaming', () => {
 });
 
 it('생성 중 delta와 정규화한 done 응답을 내보낸다', async () => {
-  const { createCodeStream } = await import('./stream');
   const body = createCodeStream(async emit => {
     emit('const Card = () => <div />;');
     return '```jsx\nconst Card = () => <div />;\n```';
@@ -48,4 +47,17 @@ it('생성 중 delta와 정규화한 done 응답을 내보낸다', async () => {
   const events = (await new Response(body).text()).trim().split('\n').map(line => JSON.parse(line));
   expect(events[0]).toEqual({ type: 'delta', text: 'const Card = () => <div />;' });
   expect(events[1]).toEqual({ type: 'done', code: 'const Card = () => <div />;\n\nrender(<Card />);' });
+});
+
+it.each([
+  ['429', '요청이 너무 많습니다. 잠시 후 다시 시도해주세요.'],
+  ['503', 'API 서버가 일시적으로 과부하 상태입니다. 잠시 후 다시 시도해주세요.'],
+])('provider의 %s 오류를 구분해 전달한다', async (status, message) => {
+  const body = createCodeStream(async () => {
+    throw new Error(`Provider error: ${status}`);
+  });
+
+  const [event] = (await new Response(body).text()).trim().split('\n').map(line => JSON.parse(line));
+
+  expect(event).toEqual({ type: 'error', error: message });
 });

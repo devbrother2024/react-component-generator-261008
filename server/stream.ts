@@ -35,6 +35,17 @@ export async function readProviderStream(response: Response, provider: 'google' 
   return text;
 }
 
+function streamErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : '';
+  if (message.includes('503')) {
+    return 'API 서버가 일시적으로 과부하 상태입니다. 잠시 후 다시 시도해주세요.';
+  }
+  if (message.includes('429')) {
+    return '요청이 너무 많습니다. 잠시 후 다시 시도해주세요.';
+  }
+  return '코드 생성에 실패했습니다. 잠시 후 다시 시도해주세요.';
+}
+
 export function createCodeStream(generate: (emit: (text: string) => void) => Promise<string>, abort?: () => void) {
   let cancelled = false;
   return new ReadableStream<Uint8Array>({
@@ -46,8 +57,8 @@ export function createCodeStream(generate: (emit: (text: string) => void) => Pro
         const text = await generate(text => send({ type: 'delta', text }));
         const code = ensureRenderCall(stripCodeFences(text));
         send({ type: 'done', code });
-      } catch {
-        send({ type: 'error', error: '코드 생성에 실패했습니다. 잠시 후 다시 시도해주세요.' });
+      } catch (error) {
+        send({ type: 'error', error: streamErrorMessage(error) });
       } finally {
         if (!cancelled) controller.close();
       }
