@@ -3,6 +3,8 @@ import { PromptInput } from './components/PromptInput';
 import { ComponentCard } from './components/ComponentCard';
 import { useComponentGenerator } from './hooks/useComponentGenerator';
 import type { Provider } from './types';
+import { restoreProvider } from './utils/restore';
+import { readStorage, STORAGE_KEYS, writeStorage } from './utils/storage';
 import './App.css';
 
 const PROVIDER_CONFIG = {
@@ -13,13 +15,19 @@ const PROVIDER_CONFIG = {
 function App() {
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
-  const [provider, setProvider] = useState<Provider>('google');
+  const [provider, setProvider] = useState<Provider>(() =>
+    restoreProvider(readStorage(STORAGE_KEYS.provider, 'google')),
+  );
   const [envKeys, setEnvKeys] = useState<Record<Provider, boolean>>({
     anthropic: false,
     google: false,
   });
-  const { components, isLoading, error, generate, removeComponent, clearAll } =
+  const { components, promptHistory, isLoading, error, generate, removeComponent, clearAll } =
     useComponentGenerator();
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.provider, provider);
+  }, [provider]);
 
   useEffect(() => {
     fetch('/api/config')
@@ -68,7 +76,11 @@ function App() {
 
       <main className="workspace">
         <section className="composer-panel" aria-label="컴포넌트 생성">
-          <PromptInput onGenerate={handleGenerate} isLoading={isLoading} />
+          <PromptInput
+            onGenerate={handleGenerate}
+            isLoading={isLoading}
+            promptHistory={promptHistory}
+          />
         </section>
 
         <aside className="settings-panel" aria-label="실행 설정">

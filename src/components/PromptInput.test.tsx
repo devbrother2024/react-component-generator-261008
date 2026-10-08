@@ -38,4 +38,19 @@ describe('PromptInput', () => {
     expect(screen.getByRole('button', { name: '컴포넌트 생성' })).toBeDisabled();
     expect(onGenerate).not.toHaveBeenCalled();
   });
+
+  it('저장된 프롬프트 히스토리를 표시하고 선택할 수 있다', async () => {
+    const user = userEvent.setup();
+    render(
+      <PromptInput
+        onGenerate={vi.fn()}
+        isLoading={false}
+        promptHistory={['프로필 카드']}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '프로필 카드' }));
+
+    expect(screen.getByRole('textbox')).toHaveValue('프로필 카드');
+  });
 });
