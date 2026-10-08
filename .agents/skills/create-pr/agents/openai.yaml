@@ -1,6 +1,6 @@
 interface:
   display_name: "Pull Request 생성"
-  short_description: "GitHub Pull Request를 생성하고 검증합니다"
-  default_prompt: "현재 브랜치의 Pull Request를 생성하려면 $create-pr를 사용하세요."
+  short_description: "하위 에이전트로 GitHub PR을 생성하고 검증합니다"
+  default_prompt: "현재 브랜치의 Pull Request 생성을 하위 에이전트에 위임하려면 $create-pr를 사용하세요."
 policy:
   allow_implicit_invocation: true
